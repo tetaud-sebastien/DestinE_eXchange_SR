@@ -116,7 +116,7 @@ class SuperResolutionInference:
         ax[0].set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
         ax[0].imshow(lr_image.values, origin='upper', extent=[lon_min, lon_max, lat_min, lat_max],
                      transform=ccrs.PlateCarree(), cmap="YlOrRd", vmin=v_min, vmax=v_max)
-        ax[0].set_title(f"Low-Resolution: {lr_time}")
+        ax[0].set_title(f"Low-Resolution: {lr_time.astype('datetime64[m]')}")
 
         # Plot Super-Resolution Image
         ax[1].coastlines()
@@ -124,7 +124,7 @@ class SuperResolutionInference:
         ax[1].set_extent([lon_min, lon_max, lat_min, lat_max], crs=ccrs.PlateCarree())
         hr = ax[1].imshow(sr_image, origin='upper', extent=[lon_min, lon_max, lat_min, lat_max],
                           transform=ccrs.PlateCarree(), cmap="YlOrRd", vmin=v_min, vmax=v_max)
-        ax[1].set_title(f"Super-Resolution: {lr_time}")
+        ax[1].set_title(f"Super-Resolution: {lr_time.astype('datetime64[m]')}")
 
         cbar_hr = fig.colorbar(hr, ax=ax[1])
         cbar_hr.set_label(f"Temperature ({lr_image.units})")

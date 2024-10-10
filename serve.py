@@ -73,8 +73,8 @@ class GradioInference:
 
         # Postprocess the result and visualize
         self.sr_result = sr.postprocessing(sr_result, HR_MEAN, HR_STD)
-        fig = sr.visualize(
-            lr_image=self.lr_image, sr_image=self.sr_result, lr_time=self.lr_image.time.values
+        fig = sr.visualize(lr_image=self.lr_image, sr_image=self.sr_result,
+                           lr_time=self.lr_image.time.values
         )
 
         return fig
