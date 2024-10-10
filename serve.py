@@ -3,132 +3,211 @@ from gradio_calendar import Calendar
 import xarray as xr
 import numpy as np
 import subprocess
-import os
-import datetime
-import rioxarray  # Make sure to import rioxarray
-from model import SRResNet  # Replace with actual import paths
+import rioxarray  # Ensure rioxarray is imported for spatial data handling
+from model import SRResNet
 from super_resolution_inference import SuperResolutionInference
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy.feature as cf
+from utils import ColorMappingGenerator
 
-# Define preprocessing and inference function
-def run_inference_on_date(selected_date):
+
+# Constants for preprocessing
+LR_MEAN = 10.007193565368652
+LR_STD = 4.303609371185303
+HR_MEAN = 10.094209671020508
+HR_STD = 4.23423957824707
+SCALE_FACTOR_LATITUDE = 8
+MODEL_PATH = "/home/ubuntu/project/DestinE_eXchange_SR/lightning_logs/version_46/checkpoints/best-val-ssim-epoch=97-val_ssim=0.59.pt"
+
+
+class GradioInference:
     """
-    Run super-resolution inference for the selected date.
-
-    Args:
-        selected_date (str): The date to use for selecting the low-resolution data.
-
-    Returns:
-        tuple: (Low-resolution image, Super-resolved image)
+    Class to handle the inference for super-resolution and generation of COG files
+    for both low-resolution and super-resolved temperature data.
     """
 
-    data = xr.open_dataset(
-    "https://cacheb.dcms.destine.eu/d1-climate-dt/ScenarioMIP-SSP3-7.0-IFS-NEMO-0001-standard-sfc-v0.zarr",
-    engine="zarr",
-    storage_options={"client_kwargs": {"trust_env": "true"}},
-    chunks={},
-    )
-    t2m_lr = data.t2m.astype("float32") - 273.15
-    t2m_lr.attrs["units"] = "C"
-    lr = t2m_lr.sel(**{"latitude": slice(47, 58.22), "longitude": slice(5, 16.25)})
-    model_path = "/home/ubuntu/project/DestinE_eXchange_SR/lightning_logs/version_46/checkpoints/best-val-ssim-epoch=97-val_ssim=0.59.pt"
-    model = SRResNet(large_kernel_size=9, small_kernel_size=3, n_channels=64, n_blocks=16, scaling_factor=8)
-    # Initialize the inference class
-    sr = SuperResolutionInference(model_path=model_path, model_class=model)
-    formatted_str = selected_date.strftime('%Y-%m-%dT%H:%M:%S')
-    lr_image = lr.sel(time=formatted_str)
-    lr_mean = 10.007193565368652
-    lr_std = 4.303609371185303
-    hr_mean = 10.094209671020508
-    hr_std = 4.23423957824707
-    # Preprocess the image
-    preprocessed_image = sr.preprocess(lr_image, lr_mean=lr_mean, lr_std=lr_std)
-    # Perform inference
-    sr_result = sr.inference(preprocessed_image)
-    sr_result = sr.postprocessing(sr_result, hr_mean, hr_std)
-    fig = sr.visualize(lr_image=lr_image, sr_image=sr_result, lr_time=lr_image.time.values)
-    return fig
+    def __init__(self):
+        """
+        Initialize the GradioInference class. Load the dataset and initialize necessary parameters.
+        """
+        self.model_path = MODEL_PATH
+        self.scale_factor_latitude = SCALE_FACTOR_LATITUDE
 
-# Define the generate_cog_file function
-def generate_cog_file():
-    try:
-        # Step 1: Create the xarray dataset with t2m variable
-        time_series = np.random.randn(1, 4096, 8193)  # Random data for example
-        time_stamps = [datetime.datetime.now()]  # Current timestamp for example
-        latitudes = np.linspace(-90, 90, 4096)
-        longitudes = np.linspace(-180, 180, 8193)
-
-        ds = xr.Dataset(
-            data_vars={"t2m": (["latitude", "longitude"], time_series[0])},
-            coords={"latitude": latitudes, "longitude": longitudes, "time": time_stamps[0]},
-            attrs={"description": "2-meter temperature"}
+        # Load the dataset
+        data = xr.open_dataset(
+            "https://cacheb.dcms.destine.eu/d1-climate-dt/ScenarioMIP-SSP3-7.0-IFS-NEMO-0001-standard-sfc-v0.zarr",
+            engine="zarr",
+            storage_options={"client_kwargs": {"trust_env": "true"}},
+            chunks={}
         )
-        var = ds['t2m'] - 273.15  # Convert to Celsius
-        var = var.rename({'latitude': 'y', 'longitude': 'x'})
-        var.rio.write_crs("EPSG:4326", inplace=True)
-        # Handle NaN values and save as a TIFF file
-        var_filled = var.fillna(-9999)
-        tif_filename = 'tif_filename.tif'
-        var_filled.rio.to_raster(tif_filename)
 
-        # Step 2: Run the subprocess commands for creating COG
-        vrt_filename = 'vrt_filename.vrt'
-        output_vrt_filename = 'output_vrt_filename.vrt'
-        output_cog_filename = 'output_cog_filename.tif'
-        dte_output_cog_optimised_filename = 'dte_test_cog_optimised_filename.tif'
+        # Convert temperature to Celsius and extract required region
+        t2m_lr = data.t2m.astype("float32") - 273.15  # Convert to Celsius
+        t2m_lr.attrs["units"] = "C"
+        self.lr = t2m_lr.sel(
+            **{"latitude": slice(47, 58.22), "longitude": slice(5, 16.25)}
+        )
+        self.sr_result = None
+        self.lr_image = None
 
-        # Convert to VRT
-        subprocess.run(f"gdal_translate -of VRT {tif_filename} {vrt_filename}", shell=True, check=True)
+    def run_inference_on_date(self, selected_date):
+        """
+        Run super-resolution inference for the selected date.
 
-        # Apply color relief
-        subprocess.run(f"gdaldem color-relief {vrt_filename} colormap.txt {output_vrt_filename}", shell=True, check=True)
+        Args:
+            selected_date (datetime): The date to use for selecting the low-resolution data.
 
-        # Convert VRT to COG
-        subprocess.run(f"gdal_translate -of COG {output_vrt_filename} {output_cog_filename}", shell=True, check=True)
+        Returns:
+            Plot: Plot showing low-resolution and super-resolved images.
+        """
+        model = SRResNet(
+            large_kernel_size=9, small_kernel_size=3, n_channels=64, n_blocks=16, scaling_factor=8
+        )
+        sr = SuperResolutionInference(model_path=self.model_path, model_class=model)
 
-        # Optimize COG
-        # subprocess.run(f"rio cogeo create {output_cog_filename} {dte_output_cog_optimised_filename} --blocksize 512 --overview-resampling average --overview-level 8 --web-optimized", shell=True, check=True)
+        # Convert the selected date to the appropriate format
+        formatted_str = selected_date.strftime('%Y-%m-%dT%H:%M:%S')
+        # Currently hardcoded for demonstration
+        self.lr_image = self.lr.sel(time="2024-10-14T11:00:00")
 
-        # Return success message
-        return f"COG file created successfully: {dte_output_cog_optimised_filename}"
+        # Preprocess and perform inference
+        preprocessed_image = sr.preprocess(self.lr_image, lr_mean=LR_MEAN, lr_std=LR_STD)
+        sr_result = sr.inference(preprocessed_image)
 
-    except subprocess.CalledProcessError as e:
-        return f"Error occurred: {str(e)}"
-    except Exception as e:
-        return f"Unexpected error: {str(e)}"
+        # Postprocess the result and visualize
+        self.sr_result = sr.postprocessing(sr_result, HR_MEAN, HR_STD)
+        fig = sr.visualize(
+            lr_image=self.lr_image, sr_image=self.sr_result, lr_time=self.lr_image.time.values
+        )
 
+        return fig
+
+    def generate_cog_file(self):
+        """
+        Generate a COG file based on the super-resolved image and its latitude/longitude.
+
+        Returns:
+            str: Success or error message.
+        """
+        color_mapping_gen = ColorMappingGenerator(
+            lr_image=self.lr_image.values, sr_result=self.sr_result, num_colors=20
+        )
+        # Write the RGB mapping to a text file
+        color_mapping_gen.write_rgb_mapping_to_file("color_mapping.txt")
+
+        try:
+            if self.lr_image is None or self.sr_result is None:
+                raise ValueError("Run inference before generating the COG file.")
+
+            # Generate latitude and longitude
+            latitudes = np.linspace(
+                self.lr_image.latitude.min(), self.lr_image.latitude.max(),
+                int(self.lr_image.shape[0] * self.scale_factor_latitude)
+            )
+            longitudes = np.linspace(
+                self.lr_image.longitude.min(), self.lr_image.longitude.max(),
+                int(self.lr_image.shape[1] * self.scale_factor_latitude)
+            )
+
+            # Create xarray Dataset for super-resolved data
+            ds = xr.Dataset(
+                data_vars={"t2m": (["latitude", "longitude"], self.sr_result)},
+                coords={"latitude": latitudes, "longitude": longitudes, "time": self.lr_image.time},
+                attrs={"description": "Super-resolved 2-meter temperature"}
+            )
+            var = ds['t2m']
+            # Convert to proper CRS and handle missing values
+            var = var.rename({'latitude': 'y', 'longitude': 'x'})
+            var.rio.write_crs("EPSG:4326", inplace=True)
+            var_filled = var.fillna(-9999)  # Replace NaNs with -9999
+            # Save the super-resolved image as a TIF file
+            tif_filename = 'tif_filename.tif'
+            var_filled.rio.to_raster(tif_filename)
+            # Convert to VRT and apply color relief
+            vrt_filename = 'vrt_filename.vrt'
+            output_vrt_filename = 'output_vrt_filename.vrt'
+            subprocess.run(f"gdal_translate -of VRT {tif_filename} {vrt_filename}", shell=True, check=True)
+            subprocess.run(f"gdaldem color-relief {vrt_filename} color_mapping.txt {output_vrt_filename}", shell=True, check=True)
+            # Convert VRT to COG
+            output_cog_filename = 'hr_output_cog_filename.tif'
+            subprocess.run(f"gdal_translate -of COG {output_vrt_filename} {output_cog_filename}", shell=True, check=True)
+            return f"COG file created successfully: {output_cog_filename}"
+
+        except subprocess.CalledProcessError as e:
+            return f"Error occurred: {str(e)}"
+        except Exception as e:
+            return f"Unexpected error: {str(e)}"
+
+    def generate_lr_image_cog_file(self):
+        """
+        Generate a COG file based on the low-resolution image and its latitude/longitude.
+
+        Returns:
+            str: Success or error message.
+        """
+        try:
+            if self.lr_image is None:
+                raise ValueError("Run inference before generating the COG file.")
+
+            # Create xarray Dataset for the low-resolution image
+            ds_lr = xr.Dataset(
+                data_vars={"t2m": (["latitude", "longitude"], self.lr_image.values)},
+                coords={"latitude": self.lr_image.latitude, "longitude": self.lr_image.longitude, "time": self.lr_image.time},
+                attrs={"description": "Low-resolution 2-meter temperature"}
+            )
+            var_lr = ds_lr['t2m']
+            # Convert to proper CRS and handle NaN values
+            var_lr = var_lr.rename({'latitude': 'y', 'longitude': 'x'})
+            var_lr.rio.write_crs("EPSG:4326", inplace=True)
+            var_lr_filled = var_lr.fillna(-9999)  # Replace NaNs with -9999
+            # Save the low-resolution data as a TIF file
+            tif_lr_filename = 'lr_tif_filename.tif'
+            var_lr_filled.rio.to_raster(tif_lr_filename)
+            # Convert to VRT and apply color relief (Optional, depends on your needs)
+            vrt_lr_filename = 'lr_vrt_filename.vrt'
+            output_vrt_lr_filename = 'lr_output_vrt_filename.vrt'
+            subprocess.run(f"gdal_translate -of VRT {tif_lr_filename} {vrt_lr_filename}", shell=True, check=True)
+            subprocess.run(f"gdaldem color-relief {vrt_lr_filename} color_mapping.txt {output_vrt_lr_filename}", shell=True, check=True)
+            # Convert VRT to COG
+            output_cog_lr_filename = 'lr_output_cog_filename.tif'
+            subprocess.run(f"gdal_translate -of COG {output_vrt_lr_filename} {output_cog_lr_filename}", shell=True, check=True)
+
+            return f"Low-resolution COG file created successfully: {output_cog_lr_filename}"
+
+        except subprocess.CalledProcessError as e:
+            return f"Error occurred while generating COG for low-resolution image: {str(e)}"
+        except Exception as e:
+            return f"Unexpected error: {str(e)}"
+
+
+# Initialize Gradio Inference object
+inference = GradioInference()
 
 with gr.Blocks() as demo:
     with gr.Row():
-        with gr.Column(scale=1, min_width=300):  # Adjust min_width to make the button and calendar the same size
-            # Add the plot output first
+        with gr.Column(scale=1, min_width=300):
             plot_output = gr.Plot()
-
-            # Add your input calendar below the plot
             date_picker = Calendar(type="date", label="Select Date", info="Pick a date from the calendar.")
-
-            # Add the button with same width as calendar
             run_button = gr.Button("Run Inference")
-            cog_button = gr.Button("Generate COG file")
-
-            # Add text output to display terminal message
+            cog_button = gr.Button("Generate Super-Resolution COG file")
+            lr_cog_button = gr.Button("Generate Low-Resolution COG file")
             terminal_output = gr.Textbox(label="Processing information", placeholder="...")
 
-
-    # Link the input and output components to the function
+    # Link the input and output components to the GradioInference class
     run_button.click(
-        fn=run_inference_on_date,
+        fn=inference.run_inference_on_date,
         inputs=date_picker,
         outputs=plot_output,
     )
 
-        # Link the cog_button to the generate_cog_file function and display the output in the Textbox
     cog_button.click(
-        fn=generate_cog_file,
+        fn=inference.generate_cog_file,
         inputs=None,
-        outputs=terminal_output  # Display the returned message in the Textbox
+        outputs=terminal_output,
+    )
+
+    lr_cog_button.click(
+        fn=inference.generate_lr_image_cog_file,
+        inputs=None,
+        outputs=terminal_output,
     )
 
 # Launch the interface
