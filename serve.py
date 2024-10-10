@@ -126,7 +126,7 @@ class GradioInference:
             subprocess.run(f"gdal_translate -of VRT {tif_filename} {vrt_filename}", shell=True, check=True)
             subprocess.run(f"gdaldem color-relief {vrt_filename} color_mapping.txt {output_vrt_filename}", shell=True, check=True)
             # Convert VRT to COG
-            output_cog_filename = f"{self.current_time}_hr_output_cog_filename.tif"
+            output_cog_filename = f"{self.current_time}_hr_cog_file.tif"
             subprocess.run(f"gdal_translate -of COG {output_vrt_filename} {output_cog_filename}", shell=True, check=True)
             subprocess.run(f"rm -fr {tif_filename} {vrt_filename} {output_vrt_filename}", shell=True, check=True)
 
@@ -167,7 +167,7 @@ class GradioInference:
             subprocess.run(f"gdal_translate -of VRT {tif_lr_filename} {vrt_lr_filename}", shell=True, check=True)
             subprocess.run(f"gdaldem color-relief {vrt_lr_filename} color_mapping.txt {output_vrt_lr_filename}", shell=True, check=True)
             # Convert VRT to COG
-            output_cog_lr_filename = f"{self.current_time}_lr_output_cog_filename.tif"
+            output_cog_lr_filename = f"{self.current_time}_lr_cog_file.tif"
             subprocess.run(f"gdal_translate -of COG {output_vrt_lr_filename} {output_cog_lr_filename}", shell=True, check=True)
             subprocess.run(f"rm -fr {vrt_lr_filename} {output_vrt_lr_filename} {tif_lr_filename}", shell=True, check=True)
             return output_cog_lr_filename  # Return the COG file path to be downloadable
