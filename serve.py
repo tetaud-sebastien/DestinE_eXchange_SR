@@ -1,3 +1,4 @@
+import datetime
 import gradio as gr
 from gradio_calendar import Calendar
 import xarray as xr
@@ -31,6 +32,8 @@ class GradioInference:
         self.model_path = MODEL_PATH
         self.scale_factor_latitude = SCALE_FACTOR_LATITUDE
 
+
+
         # Load the dataset
         data = xr.open_dataset(
             "https://cacheb.dcms.destine.eu/d1-climate-dt/ScenarioMIP-SSP3-7.0-IFS-NEMO-0001-standard-sfc-v0.zarr",
@@ -58,11 +61,11 @@ class GradioInference:
         Returns:
             Plot: Plot showing low-resolution and super-resolved images.
         """
+        self.current_time = datetime.datetime.now().strftime("%Y_%m_%d_%H_%M")
         model = SRResNet(
             large_kernel_size=9, small_kernel_size=3, n_channels=64, n_blocks=16, scaling_factor=8
         )
         sr = SuperResolutionInference(model_path=self.model_path, model_class=model)
-
         # Convert the selected date to the appropriate format
         formatted_str = selected_date.strftime('%Y-%m-%dT%H:%M:%S')
         # Currently hardcoded for demonstration
@@ -127,8 +130,9 @@ class GradioInference:
             subprocess.run(f"gdal_translate -of VRT {tif_filename} {vrt_filename}", shell=True, check=True)
             subprocess.run(f"gdaldem color-relief {vrt_filename} color_mapping.txt {output_vrt_filename}", shell=True, check=True)
             # Convert VRT to COG
-            output_cog_filename = 'hr_output_cog_filename.tif'
+            output_cog_filename = f"{self.current_time}_hr_output_cog_filename.tif"
             subprocess.run(f"gdal_translate -of COG {output_vrt_filename} {output_cog_filename}", shell=True, check=True)
+            subprocess.run(f"rm -fr {tif_filename} {vrt_filename} {output_vrt_filename}", shell=True, check=True)
             return f"COG file created successfully: {output_cog_filename}"
 
         except subprocess.CalledProcessError as e:
@@ -146,7 +150,6 @@ class GradioInference:
         try:
             if self.lr_image is None:
                 raise ValueError("Run inference before generating the COG file.")
-
             # Create xarray Dataset for the low-resolution image
             ds_lr = xr.Dataset(
                 data_vars={"t2m": (["latitude", "longitude"], self.lr_image.values)},
@@ -167,9 +170,9 @@ class GradioInference:
             subprocess.run(f"gdal_translate -of VRT {tif_lr_filename} {vrt_lr_filename}", shell=True, check=True)
             subprocess.run(f"gdaldem color-relief {vrt_lr_filename} color_mapping.txt {output_vrt_lr_filename}", shell=True, check=True)
             # Convert VRT to COG
-            output_cog_lr_filename = 'lr_output_cog_filename.tif'
+            output_cog_lr_filename = f"{self.current_time}_lr_output_cog_filename.tif"
             subprocess.run(f"gdal_translate -of COG {output_vrt_lr_filename} {output_cog_lr_filename}", shell=True, check=True)
-
+            subprocess.run(f"rm -fr {vrt_lr_filename} {output_vrt_lr_filename} {tif_lr_filename}", shell=True, check=True)
             return f"Low-resolution COG file created successfully: {output_cog_lr_filename}"
 
         except subprocess.CalledProcessError as e:
