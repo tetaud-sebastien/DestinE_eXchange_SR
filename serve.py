@@ -16,7 +16,7 @@ LR_STD = 4.303609371185303
 HR_MEAN = 10.094209671020508
 HR_STD = 4.23423957824707
 SCALE_FACTOR_LATITUDE = 8
-MODEL_PATH = "/home/ubuntu/project/DestinE_eXchange_SR/lightning_logs/version_46/checkpoints/best-val-ssim-epoch=97-val_ssim=0.59.pt"
+MODEL_PATH = "/home/ubuntu/project/DestinE_eXchange_SR/lightning_logs/version_47/checkpoints/best-val-ssim-epoch=96-val_ssim=0.47.pt"
 
 
 class GradioInference:
@@ -24,7 +24,6 @@ class GradioInference:
     Class to handle the inference for super-resolution and generation of COG files
     for both low-resolution and super-resolved temperature data.
     """
-
     def __init__(self):
         """
         Initialize the GradioInference class. Load the dataset and initialize necessary parameters.
@@ -65,10 +64,9 @@ class GradioInference:
         )
         sr = SuperResolutionInference(model_path=self.model_path, model_class=model)
         # Convert the selected date to the appropriate format
-        formatted_str = selected_date.strftime('%Y-%m-%dT%H:%M:%S')
+        formatted_str = datetime.datetime.fromtimestamp(selected_date).strftime('%Y-%m-%dT%H:%M')
         # Currently hardcoded for demonstration
-        self.lr_image = self.lr.sel(time="2024-10-14T11:00:00")
-
+        self.lr_image = self.lr.sel(time=formatted_str, method='nearest')
         # Preprocess and perform inference
         preprocessed_image = sr.preprocess(self.lr_image, lr_mean=LR_MEAN, lr_std=LR_STD)
         sr_result = sr.inference(preprocessed_image)
@@ -211,7 +209,9 @@ with gr.Blocks(theme=gr.themes.Default(primary_hue="orange", secondary_hue="gray
     with gr.Row():
         with gr.Column(scale=1, min_width=300):
             plot_output = gr.Plot()
-            date_picker = Calendar(type="date", label="Select Date", info="Pick a date from the calendar.")
+            # date_picker = Calendar(type="date", label="Select Date", info="Pick a date from the calendar.")
+            date_picker = gr.DateTime(label="Select Date and Time")
+
 
             # Run Inference button will automatically take the "primary_hue" color from the theme
             run_inference = gr.Button("Run Inference", variant="primary")
