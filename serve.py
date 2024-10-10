@@ -32,8 +32,6 @@ class GradioInference:
         self.model_path = MODEL_PATH
         self.scale_factor_latitude = SCALE_FACTOR_LATITUDE
 
-
-
         # Load the dataset
         data = xr.open_dataset(
             "https://cacheb.dcms.destine.eu/d1-climate-dt/ScenarioMIP-SSP3-7.0-IFS-NEMO-0001-standard-sfc-v0.zarr",
@@ -133,7 +131,8 @@ class GradioInference:
             output_cog_filename = f"{self.current_time}_hr_output_cog_filename.tif"
             subprocess.run(f"gdal_translate -of COG {output_vrt_filename} {output_cog_filename}", shell=True, check=True)
             subprocess.run(f"rm -fr {tif_filename} {vrt_filename} {output_vrt_filename}", shell=True, check=True)
-            return f"COG file created successfully: {output_cog_filename}"
+
+            return output_cog_filename  # Return the COG file path to be downloadable
 
         except subprocess.CalledProcessError as e:
             return f"Error occurred: {str(e)}"
@@ -173,29 +172,57 @@ class GradioInference:
             output_cog_lr_filename = f"{self.current_time}_lr_output_cog_filename.tif"
             subprocess.run(f"gdal_translate -of COG {output_vrt_lr_filename} {output_cog_lr_filename}", shell=True, check=True)
             subprocess.run(f"rm -fr {vrt_lr_filename} {output_vrt_lr_filename} {tif_lr_filename}", shell=True, check=True)
-            return f"Low-resolution COG file created successfully: {output_cog_lr_filename}"
+            return output_cog_lr_filename  # Return the COG file path to be downloadable
 
         except subprocess.CalledProcessError as e:
             return f"Error occurred while generating COG for low-resolution image: {str(e)}"
         except Exception as e:
             return f"Unexpected error: {str(e)}"
 
-
+import os
+import base64
 # Initialize Gradio Inference object
 inference = GradioInference()
+# Path to the local SVG file (modify this path if it's located in another folder)
+local_svg_path = "assets/banner.svg"  # Update this with the actual path to your SVG file
+# Function to convert the SVG file to Base64
+def svg_to_base64(file_path):
+    with open(file_path, "rb") as f:
+        svg_base64 = base64.b64encode(f.read()).decode("utf-8")
+    return svg_base64
 
-with gr.Blocks() as demo:
+if not os.path.exists(local_svg_path):
+    raise FileNotFoundError(f"SVG file not found at {local_svg_path}")
+
+# Convert SVG to Base64
+svg_base64 = svg_to_base64(local_svg_path)
+# Create the HTML to embed the SVG using the Base64 data
+banner_html = f"""
+<div style="text-align: center; margin-bottom: 20px;">
+    <img src="data:image/svg+xml;base64,{svg_base64}" alt="Banner" style="width: 100%; max-width: 1200px;" />
+</div>
+"""
+
+# Define the theme for the Gradio Blocks
+with gr.Blocks(theme=gr.themes.Default(primary_hue="orange", secondary_hue="gray")) as demo:
+    # Add a banner with the embedded SVG
+    gr.HTML(value=banner_html)
+
     with gr.Row():
         with gr.Column(scale=1, min_width=300):
             plot_output = gr.Plot()
             date_picker = Calendar(type="date", label="Select Date", info="Pick a date from the calendar.")
-            run_button = gr.Button("Run Inference")
+
+            # Run Inference button will automatically take the "primary_hue" color from the theme
+            run_inference = gr.Button("Run Inference", variant="primary")
             cog_button = gr.Button("Generate Super-Resolution COG file")
             lr_cog_button = gr.Button("Generate Low-Resolution COG file")
-            terminal_output = gr.Textbox(label="Processing information", placeholder="...")
+            # Add file outputs for downloading
+            output_cog = gr.File(label="Download Super-Resolution COG file")
+            output_lr_cog = gr.File(label="Download Low-Resolution COG file")
 
     # Link the input and output components to the GradioInference class
-    run_button.click(
+    run_inference.click(
         fn=inference.run_inference_on_date,
         inputs=date_picker,
         outputs=plot_output,
@@ -204,13 +231,13 @@ with gr.Blocks() as demo:
     cog_button.click(
         fn=inference.generate_cog_file,
         inputs=None,
-        outputs=terminal_output,
+        outputs=output_cog,  # Use gr.File as output
     )
 
     lr_cog_button.click(
         fn=inference.generate_lr_image_cog_file,
         inputs=None,
-        outputs=terminal_output,
+        outputs=output_lr_cog,  # Use gr.File as output
     )
 
 # Launch the interface
