@@ -1,6 +1,10 @@
 from torch import nn
 import math
 
+from lightning.pytorch import seed_everything
+import torch
+torch.set_float32_matmul_precision('high')
+seed_everything(42, workers=True)
 
 class ConvolutionalBlock(nn.Module):
     """
