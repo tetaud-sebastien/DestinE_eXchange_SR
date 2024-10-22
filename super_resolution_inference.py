@@ -6,9 +6,8 @@ import matplotlib.cm as cm
 import cartopy.crs as ccrs
 import cartopy.feature as cf
 from torchvision import transforms
-import logging
+from loguru import logger
 
-logger = logging.getLogger(__name__)
 
 class SuperResolutionInference:
     def __init__(self, model_path: str, model_class: torch.nn.Module, device: str = 'cuda'):
