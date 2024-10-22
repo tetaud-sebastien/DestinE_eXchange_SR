@@ -8,7 +8,8 @@ import rioxarray  # Ensure rioxarray is imported for spatial data handling
 from model import SRResNet
 from super_resolution_inference import SuperResolutionInference
 from utils import ColorMappingGenerator
-
+import os
+import base64
 
 # Constants for preprocessing
 LR_MEAN = 10.007193565368652
@@ -177,8 +178,7 @@ class GradioInference:
         except Exception as e:
             return f"Unexpected error: {str(e)}"
 
-import os
-import base64
+
 # Initialize Gradio Inference object
 inference = GradioInference()
 # Path to the local SVG file (modify this path if it's located in another folder)
